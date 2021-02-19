@@ -4,12 +4,13 @@
 
 mount -t proc proc /proc
 mount -t sysfs none /sys
-mount -t devfs devfs /dev
-
 mdev -s
 
 mkdir -p /etc/network
 cat > /etc/network/interfaces << "EOF"
+auto lo
+iface lo inet loopback
+
 auto eth0
 iface eth0 inet dhcp
 EOF
