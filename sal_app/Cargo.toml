@@ -1,11 +1,48 @@
 [package]
 name = "sal_app"
 version = "0.1.0"
-authors = ["Michael Mullin <mimullin@blackberry.com>"]
 edition = "2021"
+rust-version = "1.56"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "libsal"
+path = "src/lib.rs"
+
+[[bin]]
+path = "src/main.rs"
+name = "sal_app"
 
 [dependencies]
-nix = "*"
-rocket = "0.5.0-rc.2"
+actix-web = "*"
+anyhow = "*"
+tokio = { version = "*", features = ["full"] }
+serde = { version = "*", features = ["derive"] }
+serde_json = "*"
+num_cpus = "*"
+smallstr = { version = "*", features = ["serde"] }
+
+rtnetlink-static-ip = { git = "https://github.com/masmullin2000/rtnetlink-static-ip.git" }
+
+mimalloc = { version = "*", default-features = false } # for raw performance
+#mimalloc = "*" # for additional security features, significant performance penalty
+
+[dev-dependencies]
+criterion = "*"
+
+[[bench]]
+name = "bench"
+harness = false
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
+
+[features]
+default = ["mimalloc"]
+mimalloc = []
+query_string = []
+scary_speed = []
+tech_emp = []
+setup_network = []

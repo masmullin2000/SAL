@@ -1,50 +1,86 @@
-use nix::sys::reboot::*;
-use rocket::{get, launch, Config};
-use std::{io::{stdin, stdout, Write}, net::Ipv4Addr};
+use actix_web::dev::Server;
+use anyhow::Result;
 
-#[macro_use] extern crate rocket;
+#[cfg(feature = "setup_network")]
+use lib::{add_address, add_route_v4, get_links, rtnetlink::new_connection};
 
+#[cfg(feature = "mimalloc")]
+use mimalloc::MiMalloc;
 
-fn get_input() {
-    let mut s = String::new();
-    print!("Please enter some text: ");
-    let _ = stdout().flush();
-    stdin()
-        .read_line(&mut s)
-        .expect("Did not enter a correct string");
-    if let Some('\n') = s.chars().next_back() {
-        s.pop();
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    #[cfg(feature = "setup_network")]
+    setup_network("192.168.0.55", "255.255.255.0", "192.168.0.1").await?;
+
+    match start_web().await {
+        Err(e) => eprintln!("error starting web server {e}"),
+        Ok(web) => web.await?,
     }
-    if let Some('\r') = s.chars().next_back() {
-        s.pop();
+
+    Ok(())
+}
+
+async fn start_web() -> Result<Server> {
+    let address = "0.0.0.0:80";
+    let listener = std::net::TcpListener::bind(address).expect("Failed to bind");
+    match libsal::run(listener) {
+        Err(e) => anyhow::bail!("error {e}"),
+        Ok(l) => Ok(l),
     }
-    if s == "quit" {
-        //reboot();
-        match reboot(RebootMode::RB_POWER_OFF) {
-            Err(e) => println!("error {}", e),
-            _ => {}
-        }
-    } else if s == "hello there" {
-        println!("General Kenobi!");
+}
+
+#[cfg(feature = "setup_network")]
+async fn setup_network(ip_addr: &str, mask: &str, gw: &str) -> Result<()> {
+    let (con, handle, _) = new_connection().expect("no new connection");
+    tokio::spawn(con);
+
+    let links = get_links(&handle).await?;
+
+    let links = links
+        .into_iter()
+        .filter_map(|(_, name)| {
+            if name.starts_with("e") {
+                Some(name)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<String>>();
+
+    let addr = if let Ok(addr) = ip_addr.parse() {
+        addr
     } else {
-        println!("You typed: {}", s);
-    }
-}
-
-#[get("/")]
-fn index() -> &'static str {
-    "Hello, World!"
-}
-
-#[launch]
-fn rocket() -> _ {
-    let config = rocket::Config {
-        port: 80,
-        address: Ipv4Addr::new(0,0,0,0).into(),
-        ..Config::default()
+        eprintln!("invalid ip address");
+        std::process::exit(1);
     };
-    let err = rocket::build()
-        .configure(config)
-        .mount("/", routes![index]);
-    err
+
+    let mask = if let Ok(mask) = mask.parse() {
+        mask
+    } else {
+        eprintln!("invalid subnet mask");
+        std::process::exit(1);
+    };
+
+    let dest = if let Ok(dest) = "0.0.0.0".parse() {
+        dest
+    } else {
+        eprintln!("invalid route");
+        std::process::exit(1);
+    };
+
+    let gw = if let Ok(gw) = gw.parse() {
+        gw
+    } else {
+        eprintln!("invalid gateway");
+        std::process::exit(1);
+    };
+
+    add_address(&handle, &links[0], addr, mask).await?;
+    add_route_v4(&handle, dest, 0, gw).await?;
+
+    Ok(())
 }

@@ -1,4 +1,3 @@
-
 APP_PKG := ./sal_app/
 APP := $(APP_PKG)/target/x86_64-unknown-linux-musl/release/sal_app
 
@@ -8,10 +7,9 @@ KERNEL := $(KERNEL_DIR)/$(ARCH_DIR)/bzImage
 
 # This makes the ISO once the initramfs is done
 # Takes the SYSLINUX Work, and the configuration stuff for SYSLINUX
-sal.iso: syslinux/bios/core/isolinux.bin ramfs/initramfs.gz
+sal.iso: clean syslinux/bios/core/isolinux.bin ramfs/initramfs.gz
 	-rm -rf isodir
 	mkdir -p isodir/isolinux
-	#cp resources/* isodir/isolinux
 	cp resources/isolinux.cfg isodir/isolinux
 	cp resources/boot.txt isodir/isolinux
 	cp syslinux/bios/core/isolinux.bin isodir/isolinux
@@ -23,9 +21,27 @@ sal.iso: syslinux/bios/core/isolinux.bin ramfs/initramfs.gz
 		-no-emul-boot -boot-load-size 4 -boot-info-table -iso-level 3 -f -R isodir
 	isohybrid sal.iso
 
-# CREATES THE BUSYBOX VERSION OF OUR PRODUCT
-.PHONY: busy
-busy: clean app busyfs sal.iso
+# COMPILE THE STATIC APPLICATION
+.PHONY: app
+app:
+	cd $(APP_PKG) && \
+		cargo build --target x86_64-unknown-linux-musl --release \
+		--features "tech_emp setup_network"
+
+$(APP):
+	$(MAKE) app
+
+
+.PHONY: ramfs
+ramfs:
+	$(MAKE) ramfs/initramfs.gz
+
+# GENERATE 
+ramfs/initramfs.gz: $(APP)
+	-rm -rf ramfs
+	mkdir ramfs
+	cp $(APP) ramfs/init
+	cd ramfs && find . | cpio -H newc -o | gzip -9 > initramfs.gz 
 
 # GET THE BOOLOADER
 .PHONY:
@@ -39,43 +55,9 @@ getsys:
 syslinux/bios/core/isolinux.bin:
 	$(MAKE) getsys
 
-# GET BUSYBOX
-.PHONY: busybox
-busybox:
-	wget https://www.busybox.net/downloads/binaries/1.31.0-i686-uclibc/busybox
-	chmod 777 busybox
-	mv busybox resources/
-
-resources/busybox:
-	$(MAKE) busybox
-
-.PHONY: ramfs
-ramfs:
-	$(MAKE) ramfs/initramfs.gz
-
-# GENERATE 
-ramfs/initramfs.gz: $(APP)
-	-rm -rf ramfs
-	mkdir ramfs
-	cp $(APP) ramfs/init
-	cd ramfs && find . | cpio -H newc -o | gzip -9 > initramfs.gz 
-
-# GENERATE AN INITRAMFS w/ BUSYBOX WHICH WILL EXEC APP
-busyfs: $(APP) resources/busybox
-	-rm -rf ramfs
-	mkdir -p ramfs/{bin,sbin,etc,proc,usr,usr/bin,usr/sbin,dev,sys,mnt,mnt/rootfs}
-	cp $(APP) ramfs/app
-	cp resources/init ramfs/init
-	cp resources/busybox ramfs/bin/
-	cd ramfs && find . ! -name "initramfs.gz" | cpio -H newc -o | gzip -9 > initramfs.gz 	
-
-# COMPILE THE STATIC APPLICATION
-.PHONY: app
-app:
-	cd $(APP_PKG) && cargo build --target x86_64-unknown-linux-musl --release
-
-$(APP):
-	$(MAKE) app
+# CREATES THE BUSYBOX VERSION OF OUR PRODUCT
+.PHONY: busy
+busy: clean app busyfs sal.iso
 
 .PHONY: clean
 clean:
@@ -93,3 +75,24 @@ cleansys:
 
 .PHONY: cleanall
 cleanall: clean cleanapp cleansys
+
+
+#### BUSYBOX SPECIFIC STUFF
+# GET BUSYBOX
+.PHONY: busybox
+busybox:
+	wget https://www.busybox.net/downloads/binaries/1.31.0-i686-uclibc/busybox
+	chmod 777 busybox
+	mv busybox resources/
+
+resources/busybox:
+	$(MAKE) busybox
+
+# GENERATE AN INITRAMFS w/ BUSYBOX WHICH WILL EXEC APP
+busyfs: $(APP) resources/busybox
+	-rm -rf ramfs
+	mkdir -p ramfs/{bin,sbin,etc,proc,usr,usr/bin,usr/sbin,dev,sys,mnt,mnt/rootfs}
+	cp $(APP) ramfs/app
+	cp resources/init ramfs/init
+	cp resources/busybox ramfs/bin/
+	cd ramfs && find . ! -name "initramfs.gz" | cpio -H newc -o | gzip -9 > initramfs.gz
