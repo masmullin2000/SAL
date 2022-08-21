@@ -2,8 +2,9 @@
 APP_PKG := ./sal_app/
 APP := $(APP_PKG)/target/x86_64-unknown-linux-musl/release/sal_app
 
-KERNEL_DIR := ~/kernel/linux/arch/x86/boot
-KERNEL := $(KERNEL_DIR)/bzImage
+KERNEL_DIR:=/code/mainline
+ARCH_DIR=arch/x86/boot
+KERNEL := $(KERNEL_DIR)/$(ARCH_DIR)/bzImage
 
 # This makes the ISO once the initramfs is done
 # Takes the SYSLINUX Work, and the configuration stuff for SYSLINUX
